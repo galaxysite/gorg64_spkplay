@@ -1,0 +1,4 @@
+1000	common	spkon	sys_spkon
+1001	common spkoff	sys_spkoff
+1002	common	spkplay	sys_spkplay
+1003	common	spkpatchexists	sys_spkpatchexists
