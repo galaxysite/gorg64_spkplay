@@ -20,13 +20,10 @@
 //    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #define _GNU_SOURCE
-//#define extern -O1
 #include <sys/io.h>
 #include <unistd.h>
 #include <sys/syscall.h>
-//#include <sys/types.h>
 #include <signal.h>
-//#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,15 +31,13 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <glob.h>
 // gcc -lm -O1 -fPIE gorg64_spktone.c  -o gorg64_spktonec
 
 typedef struct {
 	unsigned short tone;
 	unsigned short duration;
 } ttw;
-
-// int b_r = 0;
-int e;
 
 void spkon()
 {
@@ -51,10 +46,6 @@ outb(inb(0x61) | 3, 0x61);
 void spkoff()
 {
 outb(inb(0x61) & 0xFC, 0x61);
-}
-void spkpatchexists()
-{
-if (syscall(1003) == 123) {e = 1; } else {e = 0;}
 }
 void spk(short t)
 {
@@ -74,18 +65,9 @@ void kspkoff()
 {
 syscall(1001);
 }
-void gspk(short t)
-{
-if (e == 1) {kspk(t);} else {spk(t);}
-}
-void gspkon()
-{
-if (e == 1) {kspkon();} else {spkon();}
-}
-void gspkoff()
-{
-if (e == 1) {kspkoff();} else {spkoff();}
-}
+void (*gspkon)() = NULL;
+void (*gspkoff)() = NULL;
+void (*gspk)(short t) = NULL;
 
 short spkf(float tone)
 {
@@ -98,19 +80,16 @@ return tmp;
 
 void SIGHUPHandler(int signal) {
 puts("SIGHUP");
-// b_r = 1;
 gspkoff();
 _Exit(0);
 }
 void SIGINTHandler(int signal) {
 puts("SIGINT");
-// b_r = 1;
 gspkoff();
 _Exit(0);
 }
 void SIGTERMHandler(int signal) {
 puts("SIGTERM");
-// b_r = 1;
 gspkoff();
 _Exit(0);
 }
@@ -127,22 +106,44 @@ void InstallSignalHandlers() {
   sigaction(SIGHUP, &action, &nu);
 }
 
-
 int
 main(int argc, char *argv[])
 {
+long int pid = getpid();
+glob_t globlist;
+int i;
+char cm[1024];
+struct stat sp;
+i = 0;               
+glob("/proc/[0-9]*", GLOB_ONLYDIR, NULL, &globlist);
+      while (globlist.gl_pathv[i])
+        {
+char *name = strrchr(globlist.gl_pathv[i], '/') + 1;
+if (pid != atoi(name)) {
+FILE *fp = fopen(strcat(globlist.gl_pathv[i], "/comm"), "r");
+fgets(cm, 1023, fp);
+cm[strcspn(cm, "\n" )] = '\0';
+fclose(fp);
+if ((strcmp("gorg64_spkplay", cm) == 0) | (strcmp("gorg64_spktone", cm) == 0)) {
+puts("Already running. Exit.");
+_Exit(0);
+}
+}
+          i++;
+        }
+globfree(&globlist);
+
 InstallSignalHandlers();
 
-spkpatchexists();
-if (e == 0) {
-if ( ioperm(0x42, 2, 1) != 0 ) {puts("ERR 42-43 ports"); return 1;};
-if ( ioperm(0x61, 1, 1) != 0 ) {puts("ERR 61 port"); return 1;};
-}
+if (syscall(1003) == 123)
+{gspkon = kspkon; gspkoff = kspkoff; gspk = kspk; puts("Use kernel patch");} else { 
+if ( ioperm(0x42, 2, 1) != 0 ) {puts("ERR 42-43 ports"); _Exit(1);};
+if ( ioperm(0x61, 1, 1) != 0 ) {puts("ERR 61 port"); _Exit(1);};
+gspkon = spkon; gspkoff = spkoff; gspk = spk; puts("Use I/O ports");}
 
 if (argc == 1) {puts("Use: gorg64_spkplay file1.speaker file2.speaker ... ");
 gspkon(); gspk(1000); usleep(1000000); gspkoff(); _Exit(0);}
 
-// https://russianblogs.com/article/3141237762/
 void *a;
 ttw *p;
 struct stat sb;
@@ -150,7 +151,7 @@ int fd;
 int64_t ff;
 int64_t f;
 for (ff = 1;  ff < argc; ff++){
-printf(argv[ff]);
+puts(argv[ff]);
 fd = open(argv[ff], O_RDONLY);
 fstat(fd, &sb);
 a = mmap(NULL,  sb.st_size, PROT_READ, MAP_PRIVATE, fd,  0);
@@ -164,7 +165,6 @@ for (f = 0; f < sb.st_size; f++){
  if (p->tone < 1) {
    gspkoff();
    usleep(p->duration*1000);
-// if (b_r) break;
    gspkon();
  } else {
    gspk(p->tone);

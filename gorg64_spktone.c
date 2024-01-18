@@ -31,10 +31,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <glob.h>
+#include <sys/stat.h>
 // gcc -lm -O1 -fPIE gorg64_spktone.c  -o gorg64_spktonec
-
-int b_r = 0;
-int e;
 
 void spkon()
 {
@@ -43,10 +42,6 @@ outb(inb(0x61) | 3, 0x61);
 void spkoff()
 {
 outb(inb(0x61) & 0xFC, 0x61);
-}
-void spkpatchexists()
-{
-if (syscall(1003) == 123) {e = 1; } else {e = 0;}
 }
 void spk(short t)
 {
@@ -66,18 +61,9 @@ void kspkoff()
 {
 syscall(1001);
 }
-void gspk(short t)
-{
-if (e == 1) {kspk(t);} else {spk(t);}
-}
-void gspkon()
-{
-if (e == 1) {kspkon();} else {spkon();}
-}
-void gspkoff()
-{
-if (e == 1) {kspkoff();} else {spkoff();}
-}
+void (*gspkon)() = NULL;
+void (*gspkoff)() = NULL;
+void (*gspk)(short t) = NULL;
 
 short spkf(float tone)
 {
@@ -90,23 +76,23 @@ return tmp;
 
 void SIGHUPHandler(int signal) {
 puts("SIGHUP");
-b_r = 1;
 gspkoff();
+_Exit(0);
 }
 void SIGINTHandler(int signal) {
 puts("SIGINT");
-b_r = 1;
 gspkoff();
+_Exit(0);
 }
 void SIGTERMHandler(int signal) {
 puts("SIGTERM");
-b_r = 1;
 gspkoff();
+_Exit(0);
 }
 void InstallSignalHandlers() {
   struct sigaction action, nu;
   memset(&action, 0, sizeof(action));
-  memset(&action, 0, sizeof(nu));
+  memset(&nu, 0, sizeof(nu));
   action.sa_handler = SIGTERMHandler;
   action.sa_flags = SA_RESTART;
   sigaction(SIGTERM, &action, &nu);
@@ -120,17 +106,40 @@ void InstallSignalHandlers() {
 int
 main(int argc, char *argv[])
 {
-if (argc<2) {puts("Use: gorg64_spktone [f|t|d] [freq (in Hz)|tone (in speaker unit)]|delay in diapason in ms"); return 0;}
+long int pid = getpid();
+glob_t globlist;
+int64_t i;
+char cm[1024];
+struct stat sp;
+i = 0;               
+glob("/proc/[0-9]*", GLOB_ONLYDIR, NULL, &globlist);
+      while (globlist.gl_pathv[i])
+        {
+char *name = strrchr(globlist.gl_pathv[i], '/') + 1;
+if (pid != atoi(name)) {
+FILE *fp = fopen(strcat(globlist.gl_pathv[i], "/comm"), "r");
+fgets(cm, 1023, fp);
+cm[strcspn(cm, "\n" )] = '\0';
+fclose(fp);
+if ((strcmp("gorg64_spkplay", cm) == 0) | (strcmp("gorg64_spktone", cm) == 0)) {
+puts("Already running. Exit.");
+_Exit(0);
+}
+}
+          i++;
+        }
+globfree(&globlist);
+
+if (argc<3) {puts("Use: gorg64_spktone [f|t|d] [freq (in Hz)|tone (in speaker unit)]|delay in diapason in ms"); return 0;}
 
 InstallSignalHandlers();
 
-spkpatchexists();
-if (e == 0) {
-if ( ioperm(0x42, 2, 1) != 0 ) {puts("ERR 42-43 ports"); return 1;};
-if ( ioperm(0x61, 1, 1) != 0 ) {puts("ERR 61 port"); return 1;};
-}
+if (syscall(1003) == 123)
+{gspkon = kspkon; gspkoff = kspkoff; gspk = kspk; puts("Use kernel patch");} else { 
+if ( ioperm(0x42, 2, 1) != 0 ) {puts("ERR 42-43 ports"); _Exit(1);};
+if ( ioperm(0x61, 1, 1) != 0 ) {puts("ERR 61 port"); _Exit(1);};
+gspkon = spkon; gspkoff = spkoff; gspk = spk; puts("Use I/O ports");}
 
-int64_t i;
 if (strcmp(argv[1], "t") == 0) {
 i = atoi(argv[2]);
 if (i != 0) { gspk(i); }
@@ -148,7 +157,6 @@ gspkon();
 int f;
 for (f =  0;  f <= 8000; f++) 
 {
-if (b_r) break;
 gspk(f);
 usleep(i);
 }
