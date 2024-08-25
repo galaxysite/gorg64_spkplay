@@ -1,9 +1,9 @@
 //    Program for playing melodyes on PC-Speaker.
-//    For GNU/Linux 64 bit version. Root priveleges or kernel patch needed.
-//    Version: 3.
+//    For GNU/Linux 64 bit version.
+//    Version: 4.
 //    Written on FreePascal (https://freepascal.org/).
-//    Copyright (C) 2021-2023  Artyomov Alexander
-//    http://self-made-free.ru/ (Ex http://aralni.narod.ru/)
+//    Copyright (C) 2021-2024  Artyomov Alexander
+//    http://self-made-free.ru/
 //    aralni@mail.ru
 
 //    This program is free software: you can redistribute it and/or modify
@@ -32,12 +32,25 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <glob.h>
+#include <linux/input.h>
+#include <stdint.h>
 // gcc -lm -O1 -fPIE gorg64_spktone.c  -o gorg64_spktonec
+
+int efd;
 
 typedef struct {
 	unsigned short tone;
 	unsigned short duration;
 } ttw;
+
+short spkf(float tone)
+{
+int64_t tmp;
+if ( tone < 1 ) { return 0; };
+tmp = round(1193182 / tone);
+if (tmp > 0xFFFF) { tmp = 0xFFFF; };
+return tmp;
+}
 
 void spkon()
 {
@@ -69,13 +82,63 @@ void (*gspkon)() = NULL;
 void (*gspkoff)() = NULL;
 void (*gspk)(short t) = NULL;
 
-short spkf(float tone)
+int open_evdev(const char *const device_name)
 {
-int64_t tmp;
-if ( tone < 1 ) { return 0; };
-tmp = round(1193280 / tone);
-if (tmp > 0xFFFF) { tmp = 0xFFFF; };
-return tmp;
+    struct stat sb;
+
+    if (-1 == stat(device_name, &sb)) {
+        return -1;
+    }
+
+    if (!S_ISCHR(sb.st_mode)) {
+        return -1;
+    }
+
+    const int fd = open(device_name, O_WRONLY);
+    if (fd == -1) {
+        return -1;
+    }
+
+    if (-1 == fstat(fd, &sb)) {
+        return -1;
+    }
+
+    if (!S_ISCHR(sb.st_mode)) {
+        return -1;
+    }
+
+    return fd;
+}
+
+static
+void espk(const uint16_t freq)
+{
+    struct input_event e;
+
+    memset(&e, 0, sizeof(e));
+    e.type = EV_SND;
+    e.code = SND_TONE;
+    e.value = spkf(freq);
+
+    if (sizeof(e) != write(efd, &e, sizeof(e))) {
+        puts("Cannot use the sound API");
+        _Exit(1);
+    }
+}
+
+static
+void espkoff()
+{
+    struct input_event e;
+
+    memset(&e, 0, sizeof(e));
+    e.type = EV_SND;
+    e.code = SND_TONE;
+    e.value = 0;
+
+    if (sizeof(e) != write(efd, &e, sizeof(e))) {
+        _Exit(1);
+    }
 }
 
 void SIGHUPHandler(int signal) {
@@ -135,11 +198,17 @@ globfree(&globlist);
 
 InstallSignalHandlers();
 
-if (syscall(1003) == 123)
-{gspkon = kspkon; gspkoff = kspkoff; gspk = kspk; puts("Use kernel patch");} else { 
-if ( ioperm(0x42, 2, 1) != 0 ) {puts("ERR 42-43 ports"); _Exit(1);};
-if ( ioperm(0x61, 1, 1) != 0 ) {puts("ERR 61 port"); _Exit(1);};
-gspkon = spkon; gspkoff = spkoff; gspk = spk; puts("Use I/O ports");}
+int evdev = 0;
+
+if ((ioperm(0x42, 2, 1) == 0) && (ioperm(0x61, 1, 1) == 0))
+{gspkon = spkon; gspkoff = spkoff; gspk = spk; puts("Use I/O ports");}
+else {
+ if (syscall(1003) == 123)
+ {gspkon = kspkon; gspkoff = kspkoff; gspk = kspk; puts("Use kernel patch");} else {
+  efd = open_evdev("/dev/input/by-path/platform-pcspkr-event-spkr");
+  if (efd < 0) {puts("Error open evdev"); _Exit(1);} else {evdev = 1; puts("Use evdev");}
+ };
+};
 
 if (argc == 1) {puts("Use: gorg64_spkplay file1.speaker file2.speaker ... ");
 gspkon(); gspk(1000); usleep(1000000); gspkoff(); _Exit(0);}
@@ -159,6 +228,21 @@ close(fd);
 if (a == MAP_FAILED) {puts("map failed"); continue;}
 if (sb.st_size % 4 != 0) {puts("size / 4 <> 0"); continue;}
 p = a;
+
+if (evdev == 1) {
+for (f = 0; f < sb.st_size; f++){
+ if (p->duration < 1) continue;
+ if (p->tone < 1) {
+   espkoff();
+   usleep(p->duration*1000);
+ } else {
+   espk(p->tone);
+   usleep(p->duration*1000);
+ }
+p++;
+}
+espkoff();
+} else {
 gspkon();
 for (f = 0; f < sb.st_size; f++){
  if (p->duration < 1) continue;
@@ -173,6 +257,7 @@ for (f = 0; f < sb.st_size; f++){
 p++;
 }
 gspkoff();
+}
 
 munmap(a, sb.st_size);
 }
