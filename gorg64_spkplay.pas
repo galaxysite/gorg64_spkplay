@@ -1,4 +1,4 @@
-program gorg64_spkplay_syscalls;
+program gorg64_spkplay;
 
 {$MODE OBJFPC}
 {$RANGECHECKS ON}
