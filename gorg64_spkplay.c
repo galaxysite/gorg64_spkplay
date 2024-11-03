@@ -200,6 +200,30 @@ InstallSignalHandlers();
 
 int evdev = 0;
 
+int f_uid;
+int f_euid;
+f_uid = getuid();
+f_euid = geteuid();
+printf("UID=%d EUID=%d\n",f_uid,f_euid);
+
+if (f_euid == 0) {
+    if (setuid(0))
+    {
+        perror("setuid");
+        return 1;
+    }
+
+//    if (seteuid(0))
+//    {
+//        perror("seteuid");
+//        return 1;
+//    }
+}
+
+f_uid = getuid();
+f_euid = geteuid();
+printf("Now UID=%d EUID=%d\n",f_uid,f_euid);
+
 if ((ioperm(0x42, 2, 1) == 0) && (ioperm(0x61, 1, 1) == 0))
 {gspkon = spkon; gspkoff = spkoff; gspk = spk; puts("Use I/O ports");}
 else {
