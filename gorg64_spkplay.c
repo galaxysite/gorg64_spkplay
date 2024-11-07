@@ -34,7 +34,11 @@
 #include <glob.h>
 #include <linux/input.h>
 #include <stdint.h>
-// gcc -lm -O1 -fPIE gorg64_spktone.c  -o gorg64_spktonec
+
+#include <sys/time.h>
+#include <sys/resource.h>
+
+// gcc -O4 -fPIE -pie gorg64_spktone.c  -o gorg64_spktonec -lm
 
 int efd;
 
@@ -172,32 +176,6 @@ void InstallSignalHandlers() {
 int
 main(int argc, char *argv[])
 {
-long int pid = getpid();
-glob_t globlist;
-int i;
-char cm[1024];
-struct stat sp;
-i = 0;               
-glob("/proc/[0-9]*", GLOB_ONLYDIR, NULL, &globlist);
-      while (globlist.gl_pathv[i])
-        {
-char *name = strrchr(globlist.gl_pathv[i], '/') + 1;
-if (pid != atoi(name)) {
-FILE *fp = fopen(strcat(globlist.gl_pathv[i], "/comm"), "r");
-fgets(cm, 1023, fp);
-cm[strcspn(cm, "\n" )] = '\0';
-fclose(fp);
-if ((strcmp("gorg64_spkplay", cm) == 0) | (strcmp("gorg64_spktone", cm) == 0)) {
-puts("Already running. Exit.");
-_Exit(0);
-}
-}
-          i++;
-        }
-globfree(&globlist);
-
-InstallSignalHandlers();
-
 int evdev = 0;
 
 int f_uid;
@@ -224,6 +202,37 @@ f_uid = getuid();
 f_euid = geteuid();
 printf("Now UID=%d EUID=%d\n",f_uid,f_euid);
 
+if ((argc > 1) && (strcmp(argv[1],"--stop") == 0)) {
+system("killall gorg64_spkplay");
+_Exit(0);
+}
+
+long int pid = getpid();
+glob_t globlist;
+int i;
+char cm[1024];
+struct stat sp;
+i = 0;               
+glob("/proc/[0-9]*", GLOB_ONLYDIR, NULL, &globlist);
+      while (globlist.gl_pathv[i])
+        {
+char *name = strrchr(globlist.gl_pathv[i], '/') + 1;
+if (pid != atoi(name)) {
+FILE *fp = fopen(strcat(globlist.gl_pathv[i], "/comm"), "r");
+fgets(cm, 1023, fp);
+cm[strcspn(cm, "\n" )] = '\0';
+fclose(fp);
+if ((strcmp("gorg64_spkplay", cm) == 0) | (strcmp("gorg64_spktone", cm) == 0)) {
+puts("Already running. Exit.");
+_Exit(0);
+}
+}
+          i++;
+        }
+globfree(&globlist);
+
+InstallSignalHandlers();
+
 if ((ioperm(0x42, 2, 1) == 0) && (ioperm(0x61, 1, 1) == 0))
 {gspkon = spkon; gspkoff = spkoff; gspk = spk; puts("Use I/O ports");}
 else {
@@ -233,6 +242,8 @@ else {
   if (efd < 0) {puts("Error open evdev"); _Exit(1);} else {evdev = 1; puts("Use evdev");}
  };
 };
+
+setpriority(PRIO_PROCESS,0,-20);
 
 if (argc == 1) {puts("Use: gorg64_spkplay file1.speaker file2.speaker ... ");
 gspkon(); gspk(1000); usleep(1000000); gspkoff(); _Exit(0);}

@@ -29,7 +29,7 @@ program gorg64_spkplay;
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 
-uses sysutils,unix,baseunix,linux,spkunit,urun;
+uses sysutils,unix,baseunix,linux,spkunit,urunspk;
 
 type
       TTW = packed record
@@ -89,6 +89,14 @@ end;
 f_uid := fpGetUID;
 f_euid := fpGetEUID;
 WriteLn('Now UID=',f_uid,' EUID=',f_euid);
+
+if (ParamCount > 0) and (ParamStr(1) = '--stop') then begin fpSystem('killall gorg64_spkplay'); Halt; end;
+
+if alreadyrunning then begin
+WriteLn('Already running. Exit.');
+Halt;
+end;
+
 fpSystem('renice -n -20 -p ' + inttostr(fpgetpid));
 
 if portserr then Halt;
