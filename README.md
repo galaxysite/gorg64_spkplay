@@ -1,7 +1,9 @@
 # gorg64_spkplay
 Program for playing melodys on PC-Speaker. For GNU/Linux 32 and 64 bit version. Root priveleges needed.
 
-Project have new place: https://gitflic.ru/project/alexander2023/gorg64_spkplay
+Project have new places:
+1. https://codeberg.org/Alexander2024/gorg64_spkplay
+2. https://gitflic.ru/project/alexander2023/gorg64_spkplay
 
 GALAXY ORGANIZER PC-speaker player.
 
